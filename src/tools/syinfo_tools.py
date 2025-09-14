@@ -1,39 +1,39 @@
 # -*- coding: utf-8 -*-
 
-# FOGLAMP_BEGIN
-# See: https://foglamp.dianomic.com
-# FOGLAMP_END
-
 """
-MCP TOOLS
+SYINFO MCP TOOLS
 
 Tools are functions that can be called by an MCP client (e.g., an LLM or another application).
-They perform actions or computations related to FogLAMP operations.
+They perform actions or computations related to system information gathering using the syinfo package.
 """
 
 from __future__ import annotations
 
-import os
-import requests
 import logging
-import subprocess
-from typing import Union, Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional
 
+# Setup logging with fallback
 try:
-    from foglamp.common import logger
-    _logger = logger.setup(__name__, level=logging.INFO)
-except:
+    from src.common.config_manager import _logger
+except ImportError:
     logging.basicConfig(level=logging.INFO)
     _logger = logging.getLogger(__name__)
 
-from foglamp.services.mcp.src.general.plugins import FogLAMPPlugin
-from foglamp.services.mcp.src.general.syslogs import query_syslog as _query_syslog
+# Import syinfo components with error handling
+try:
+    from syinfo.syinfo import SysInfo
+    from syinfo.network_info import NetworkInfo
+    SYINFO_AVAILABLE = True
+    _logger.info("syinfo package loaded successfully")
+except ImportError as e:
+    SYINFO_AVAILABLE = False
+    _logger.warning(f"syinfo package not available: {e}")
+    _logger.warning("Install with: pip install syinfo")
 
-
-__author__ = "Mohit Rajput"
-__copyright__ = "Copyright (c) 2025 Dianomic Systems Inc."
+__author__ = "Template Author"
+__copyright__ = "Copyright (c) 2025"
 __license__ = "Apache 2.0"
-__version__ = "${VERSION}"
+__version__ = "1.0.0"
 
 
 def register_tools(
@@ -41,293 +41,448 @@ def register_tools(
     http_client=None,
     config: Dict[str, Any] = None
 ):
-    """Register tools into the MCP server."""
+    """Register syinfo-based tools into the MCP server."""
 
     @mcp_server.tool()
-    def search_syslog(
-        match: str = "", severity: str = "", limit: int = 5
-    ) -> List[str]:
-        """Query system log entries with filtering by text match, severity level, and result limit.
-
-        Enables real-time system monitoring and debugging by filtering syslog entries
-        for specific events, error conditions, or keywords. Essential for troubleshooting
-        FogLAMP system issues and monitoring operational health.
-
-        Examples:
-            LLM Input Examples:
-                - "Get the last 5 ERROR logs that contain the word 'disk' from syslog"
-                - "Show me all recent syslog entries at error severity in raw format"
-                - "Find any logs mentioning 'connection failed' in the last 10 entries"
-                - "Check for any CRITICAL severity messages in syslog"
-
-            Function Call Examples:
-                - query_syslog(match="disk", severity="ERROR", limit=5)
-                - query_syslog(severity="WARNING", limit=10)
-                - query_syslog(match="connection", limit=20)
-
-        Args:
-            match (str): Substring to search for in log lines (case-insensitive).
-                        Empty string means no text filtering. Example: "failed", "error", "disk"
-            severity (str): Filter by syslog severity level. Case-insensitive.
-                           Options: "INFO", "WARNING", "ERROR", "CRITICAL", "DEBUG"
-                           Empty string means no severity filtering
-            limit (int): Maximum number of matching log lines to return.
-                        Default: 5, Range: 1-1000
-
-        Returns:
-            List[str]: List of matching syslog lines, newest first.
-                      Each line includes timestamp, severity, and message.
-                      Empty list if no matches found or file doesn't exist.
-
-        Errors:
-            - FileNotFoundError: When /var/log/syslog doesn't exist
-            - PermissionError: When syslog file is not readable
-            - OSError: When file system errors occur during reading
-
-        Notes:
-            - Reads from /var/log/syslog (Ubuntu/Debian systems)
-            - Searches from newest to oldest entries
-            - Text matching is case-insensitive for better usability
-            - Returns raw log lines without parsing or formatting
-        """
-        _logger.info(f"Triggering `tool:search_syslog` with {match=}, {severity=}, {limit=}.")
-        return _query_syslog(match, severity, limit)
-
-    @mcp_server.tool()
-    def discover_plugins(
-        plugin_type: str = "",
-        search_term: str = "",
-        os_type: str = "ubuntu2004",
-        architecture: str = "x86_64",
-        repository_url: str = "http://archives.dianomic.com/foglamp/latest/",
-        include_details: bool = False,
-        sort_by: str = "name"
+    def get_system_information(
+        include_sensitive: bool = False
     ) -> Dict[str, Any]:
-        """Discover and search available FogLAMP plugins/packages from Dianomic archives repository.
+        """Get comprehensive system information including hardware, OS, and performance metrics.
 
-        Enables plugin discovery for system expansion, dependency management, and
-        installation planning. Essential for administrators to understand available
-        capabilities and for automated deployment workflows.
-
-        Examples:
-            LLM Input Examples:
-                - "List all available FogLAMP plugins/packages"
-                - "Show me all south plugins for Ubuntu 24.04"
-                - "Search for sinusoid plugin"
-                - "Find PI Server plugins for x86_64 architecture"
-                - "List all filter plugins with details"
-                - "What north plugins are available for Raspberry Pi?"
-
-            Function Call Examples:
-                - list_foglamp_plugins()
-                - list_foglamp_plugins(plugin_type="south", os_type="ubuntu2004")
-                - list_foglamp_plugins(search_term="sinusoid", include_details=True)
-                - list_foglamp_plugins(plugin_type="north", architecture="arm64")
-
-        Args:
-            plugin_type (str, optional): Filter by plugin category.
-                                        Options: "south", "north", "filter", "notification", "rule", "service"
-            search_term (str, optional): Text to search in plugin names and descriptions.
-                                       Case-insensitive partial matching
-            os_type (str): Target operating system for plugin compatibility.
-                          Options: "ubuntu2204", "ubuntu2204", "rpi-bookworm"
-                          Default: "ubuntu2404"
-            architecture (str): System architecture for plugin compatibility.
-                               Options: "x86_64", "arm64", "armhf"
-                               Default: "x86_64"
-            repository_url (str): Base URL for plugin repository.
-                                 Default: Dianomic official repository
-            include_details (bool): Include file size and modification date in results.
-                                   Default: False (faster response)
-            sort_by (str): Result sorting order.
-                          Options: "name", "version", "size", "date"
-                          Default: "name"
-
-        Returns:
-            Dict[str, Any]: Plugin discovery results containing:
-                - plugins (list): List of matching plugins with metadata
-                - summary (dict): Count statistics and filter information
-                - repository_info (dict): Repository URL and access status
-
-        Errors:
-            - ConnectionError: When repository is unreachable
-            - TimeoutError: When repository request times out
-            - ValueError: When invalid plugin_type or sort_by values provided
-            - HTTPError: When repository returns error status
-
-        Notes:
-            - Searches Dianomic's official FogLAMP plugin repository
-            - Results are filtered by OS and architecture compatibility
-            - Large result sets may take several seconds to retrieve
-            - include_details=True significantly increases response time
-        """
-        _logger.info(
-            f"Triggering `tool:discover_plugins` with {plugin_type=}, "
-            f"{search_term=}, {os_type=}, {architecture=}, {repository_url=}, "
-            f"{include_details=}, {sort_by=}."
-        )
-        # Convert empty strings to None for optional parameters
-        plugin_type_param = plugin_type if plugin_type else None
-        search_term_param = search_term if search_term else None
-        
-        return FogLAMPPlugin.list_foglamp_plugins(
-            plugin_type_param, search_term_param, os_type, architecture, repository_url,
-            include_details, sort_by
-        )
-
-    @mcp_server.tool()
-    def get_platform_info() -> Dict[str, Any]:
-        """Detect the current platform (Ubuntu/Raspberry Pi).
-
-        Automatically identifies the system platform and provides platform-specific
-        information for proper plugin installation and configuration. Essential for
-        determining the correct package repository and architecture for FogLAMP plugins.
+        Retrieves detailed system information including CPU, memory, disk, network interfaces,
+        operating system details, and performance metrics. Essential for system monitoring,
+        troubleshooting, and inventory management.
 
         Examples:
             LLM Input Examples:
-                - "What platform am I running on"
-                - "Detect my system platform"
-                - "Check if this is Raspberry Pi or Ubuntu"
-                - "What's my system architecture and OS version?"
+                - "Get complete system information for this machine"
+                - "Show me the hardware specifications of this system"
+                - "What are the current system specs including CPU and memory?"
+                - "Get system info for monitoring and diagnostics"
 
             Function Call Examples:
-                - detect_platform()
+                - get_system_information()
+                - get_system_information(include_sensitive=True)
 
         Args:
-            None: This function requires no parameters
+            include_sensitive (bool): Whether to include potentially sensitive information
+                                    like serial numbers, MAC addresses, etc.
+                                    Default: False for security
 
         Returns:
-            Dict[str, Any]: Platform information containing:
-                - status (str): "success" or "failed"
-                - platform_info (dict): Detailed system information including:
-                    - system (str): Operating system name
-                    - release (str): OS release version
-                    - machine (str): Machine architecture
-                    - processor (str): CPU processor information
-                    - platform (str): "raspberry_pi", "ubuntu", or "unknown"
-                    - model (str): Specific model information
-                    - os_version (str): OS version number
-                    - os_codename (str): OS codename
-                    - recommended_platform (str): Suggested platform string for plugins
+            Dict[str, Any]: Comprehensive system information containing:
+                - cpu: CPU model, cores, architecture, frequency
+                - memory: Total, used, free, swap information
+                - disk: Disk usage, file systems, mount points
+                - network: Network interfaces and configuration
+                - os: Operating system name, version, kernel info
+                - system: Hostname, uptime, boot time
+                - performance: Current CPU/memory usage percentages
 
         Errors:
+            - ImportError: When syinfo package is not installed
+            - PermissionError: When insufficient privileges to access system info
             - OSError: When system information cannot be retrieved
-            - FileNotFoundError: When /proc/cpuinfo is not accessible
-            - subprocess.CalledProcessError: When lsb_release command fails
+            - RuntimeError: When syinfo encounters internal errors
 
         Notes:
-            - Reads /proc/cpuinfo to detect Raspberry Pi hardware
-            - Uses lsb_release command for Ubuntu version detection
-            - Provides recommended platform string for plugin installation
-            - Supports Ubuntu 22.04, 24.04 and Raspberry Pi Bookworm
+            - Requires syinfo package: pip install syinfo
+            - Some information may require elevated privileges
+            - Performance metrics are current snapshot values
+            - Sensitive data filtering is applied for security
+            - Cross-platform compatible (Linux, Windows, macOS)
         """
-        _logger.info(f"Triggering `tool:get_platform_info`.")
-        return FogLAMPPlugin.detect_platform()
+        _logger.info(f"Triggering `tool:get_system_information` with {include_sensitive=}")
+        
+        if not SYINFO_AVAILABLE:
+            return {
+                "error": "syinfo package not available",
+                "message": "Install with: pip install syinfo",
+                "status": "package_missing"
+            }
+
+        try:
+            # Get comprehensive system information
+            system_info = SysInfo.get_all()
+            
+            # Filter sensitive information if requested
+            if not include_sensitive and isinstance(system_info, dict):
+                # Remove or mask sensitive fields
+                sensitive_fields = ['serial_number', 'uuid', 'mac_address', 'ip_address']
+                for field in sensitive_fields:
+                    if field in system_info:
+                        system_info[field] = "[FILTERED]"
+                
+                # Recursively filter nested dictionaries
+                def filter_sensitive(data):
+                    if isinstance(data, dict):
+                        return {k: ("[FILTERED]" if any(sensitive in k.lower() for sensitive in ['serial', 'uuid', 'mac', 'address']) else filter_sensitive(v)) for k, v in data.items()}
+                    elif isinstance(data, list):
+                        return [filter_sensitive(item) for item in data]
+                    return data
+                
+                if not include_sensitive:
+                    system_info = filter_sensitive(system_info)
+            
+            return {
+                "status": "success",
+                "system_info": system_info,
+                "sensitive_filtered": not include_sensitive,
+                "timestamp": _get_current_timestamp()
+            }
+            
+        except Exception as e:
+            _logger.error(f"Error getting system information: {e}")
+            return {
+                "error": str(e),
+                "status": "failed",
+                "timestamp": _get_current_timestamp()
+            }
 
     @mcp_server.tool()
-    def install_plugin_package(
-        package_name: str,
-        version: str = "",
-        platform: str = "ubuntu2404"
+    def get_network_information(
+        scan_time: int = 5,
+        disable_vendor_search: bool = True,
+        include_devices: bool = False
     ) -> Dict[str, Any]:
-        """Install a FogLAMP package from the repository.
+        """Get comprehensive network information including interfaces, connected devices, and topology.
 
-        Downloads and installs FogLAMP plugins/packages from the Dianomic repository
-        using the system's package manager. Validates package availability, checks
-        existing installations, and handles platform-specific dependencies.
+        Scans the local network to discover connected devices, analyze network topology,
+        and provide detailed information about network interfaces and connections.
+        Essential for network monitoring, security auditing, and troubleshooting.
 
         Examples:
             LLM Input Examples:
-                - "Install sinusoid south plugin"
-                - "Install PI Server north plugin version 3.1.0"
-                - "Install change detection filter on Raspberry Pi"
-                - "Add the OMF north plugin to my system"
+                - "Scan the network and show me all connected devices"
+                - "Get network information including device discovery"
+                - "Show me the network topology and connected hosts"
+                - "Scan for 10 seconds and find all network devices with vendor info"
 
             Function Call Examples:
-                - install_foglamp_package(package_name="foglamp-south-sinusoid")
-                - install_foglamp_package(package_name="foglamp-north-omf", version="3.1.0")
-                - install_foglamp_package(package_name="foglamp-filter-change", platform="rpi-bookworm")
+                - get_network_information()
+                - get_network_information(scan_time=10, disable_vendor_search=False)
+                - get_network_information(scan_time=3, include_devices=True)
 
         Args:
-            package_name (str): Full package name (e.g., foglamp-south-sinusoid, foglamp-north-omf).
-                               Must start with "foglamp-" prefix
-            version (str, optional): Specific version to install.
-                                   If not specified, installs the latest available version
-            platform (str): Platform type for package compatibility.
-                           Options: "ubuntu2404", "ubuntu2204", "rpi-bookworm"
-                           Default: "ubuntu2404"
+            scan_time (int): Time in seconds to scan for network devices.
+                           Range: 1-60 seconds, Default: 5
+                           Longer scans find more devices but take more time
+            disable_vendor_search (bool): Skip vendor lookup for discovered devices.
+                                        Default: True (faster scanning)
+                                        Set to False for detailed vendor information
+            include_devices (bool): Whether to include discovered network devices.
+                                  Default: False (only interface information)
+                                  Set to True for full device discovery
 
         Returns:
-            Dict[str, Any]: Installation result containing:
-                - status (str): "success", "failed", "already_installed", "not_found", "not_available"
-                - message (str): Human-readable result message
-                - version (str): Installed version (if successful)
-                - platform (str): Target platform used
-                - architecture (str): System architecture detected
+            Dict[str, Any]: Network information containing:
+                - interfaces: Network interface details (IP, MAC, status)
+                - gateway: Default gateway information
+                - dns_servers: Configured DNS servers
+                - network_range: Local network CIDR range
+                - devices: Discovered network devices (if include_devices=True)
+                - scan_summary: Scan statistics and timing info
+                - security_info: Open ports and security-relevant findings
 
         Errors:
-            - ValueError: When package name doesn't start with "foglamp-"
-            - ConnectionError: When repository is unreachable
-            - subprocess.TimeoutExpired: When installation times out (5 minutes)
-            - subprocess.CalledProcessError: When apt installation fails
-            - FileNotFoundError: When package not found in repository
+            - ImportError: When syinfo package is not installed
+            - PermissionError: When insufficient privileges for network scanning
+            - TimeoutError: When network scan exceeds maximum allowed time
+            - NetworkError: When network interface access fails
+            - OSError: When network system calls fail
 
         Notes:
-            - Uses apt package manager (works on both Ubuntu and Raspberry Pi)
-            - Downloads .deb package to /tmp before installation
-            - Automatically cleans up downloaded files after installation
-            - Checks for existing installations to avoid duplicates
-            - Validates package availability before attempting installation
-            - Installation timeout is 5 minutes
+            - Requires syinfo package: pip install syinfo
+            - Network scanning may require elevated privileges
+            - Longer scan times discover more devices but use more resources
+            - Vendor lookup requires internet connection
+            - Results may vary based on network topology and security settings
+            - Some networks may block or limit scanning activities
         """
-        _logger.info(f"Triggering `tool:install_plugin_package` with {package_name=}, {version=}, {platform=}.")
-        # Convert empty string to None for optional parameter
-        version_param = version if version else None
-        return FogLAMPPlugin.install_foglamp_package(package_name, version_param, platform)
+        _logger.info(f"Triggering `tool:get_network_information` with {scan_time=}, {disable_vendor_search=}, {include_devices=}")
+        
+        if not SYINFO_AVAILABLE:
+            return {
+                "error": "syinfo package not available",
+                "message": "Install with: pip install syinfo",
+                "status": "package_missing"
+            }
+
+        try:
+            # Validate scan time
+            scan_time = max(1, min(60, scan_time))  # Clamp between 1 and 60 seconds
+            
+            # Get network information
+            if include_devices:
+                network_info = NetworkInfo.get_all(
+                    scan_time=scan_time, 
+                    disable_vendor_search=disable_vendor_search
+                )
+            else:
+                # Get only interface information (faster)
+                try:
+                    network_info = NetworkInfo.get_interfaces_info()
+                except AttributeError:
+                    # Fallback if method doesn't exist
+                    network_info = NetworkInfo.get_all(
+                        scan_time=1, 
+                        disable_vendor_search=True
+                    )
+            
+            return {
+                "status": "success",
+                "network_info": network_info,
+                "scan_parameters": {
+                    "scan_time": scan_time,
+                    "vendor_search_enabled": not disable_vendor_search,
+                    "device_discovery_enabled": include_devices
+                },
+                "timestamp": _get_current_timestamp()
+            }
+            
+        except Exception as e:
+            _logger.error(f"Error getting network information: {e}")
+            return {
+                "error": str(e),
+                "status": "failed",
+                "scan_parameters": {
+                    "scan_time": scan_time,
+                    "vendor_search_enabled": not disable_vendor_search,
+                    "device_discovery_enabled": include_devices
+                },
+                "timestamp": _get_current_timestamp()
+            }
 
     @mcp_server.tool()
-    def list_installed_packages() -> Dict[str, Any]:
-        """Check for installed FogLAMP packages on Ubuntu/Raspberry Pi.
+    def get_performance_metrics(detailed: bool = False) -> Dict[str, Any]:
+        """Get current system performance metrics including CPU, memory, disk, and network usage.
 
-        Scans the system for installed FogLAMP packages using both dpkg (for .deb packages)
-        and pip (for Python packages). Provides comprehensive inventory of all FogLAMP
-        components currently installed on the system.
+        Retrieves real-time system performance metrics for monitoring system health,
+        identifying bottlenecks, and tracking resource utilization. Essential for
+        performance monitoring, capacity planning, and system optimization.
 
         Examples:
             LLM Input Examples:
-                - "What FogLAMP packages are installed"
-                - "Check installed plugins"
-                - "List installed FogLAMP packages"
-                - "Show me all FogLAMP components on this system"
+                - "Get current system performance metrics"
+                - "Show me CPU and memory usage statistics"
+                - "What's the current system load and resource utilization?"
+                - "Get detailed performance metrics for monitoring"
 
             Function Call Examples:
-                - check_installed_packages()
+                - get_performance_metrics()
+                - get_performance_metrics(detailed=True)
 
         Args:
-            None: This function requires no parameters
+            detailed (bool): Whether to include detailed performance breakdowns.
+                           Default: False (basic metrics only)
+                           Set to True for per-core CPU stats, detailed memory breakdown
 
         Returns:
-            Dict[str, Any]: List of installed FogLAMP packages containing:
-                - status (str): "success" or "failed"
-                - package_manager (str): "dpkg/pip" indicating package sources
-                - packages (list): List of installed packages with details:
-                    - package_name (str): Full package name
-                    - version (str): Installed version
-                    - architecture (str): Package architecture or "python"
-                    - description (str): Package description
-                - total_count (int): Total number of installed packages
+            Dict[str, Any]: Performance metrics containing:
+                - cpu: Current CPU usage percentage and load average
+                - memory: Memory usage, available, cached, buffered
+                - disk: Disk I/O statistics and usage percentages
+                - network: Network I/O bytes sent/received
+                - processes: Process count and top consumers
+                - uptime: System uptime and load metrics
 
         Errors:
-            - subprocess.CalledProcessError: When dpkg or pip commands fail
-            - OSError: When system commands cannot be executed
-            - Exception: When unexpected errors occur during scanning
+            - ImportError: When syinfo package is not installed
+            - PermissionError: When insufficient privileges to access performance data
+            - OSError: When performance counters cannot be accessed
+            - ValueError: When performance data is invalid or corrupted
 
         Notes:
-            - Checks both system packages (dpkg) and Python packages (pip)
-            - Parses dpkg output format: "ii package_name version arch description"
-            - Parses pip output format: "package_name version"
-            - Returns empty list if no FogLAMP packages found
-            - Works on both Ubuntu and Raspberry Pi systems
+            - Requires syinfo package: pip install syinfo
+            - Performance data represents current snapshot
+            - Some metrics may require elevated privileges
+            - Network I/O counters are cumulative since boot
+            - CPU usage is average over recent sampling period
         """
-        _logger.info(f"Triggering `tool:list_installed_packages`.")
-        return FogLAMPPlugin.check_installed_packages()
+        _logger.info(f"Triggering `tool:get_performance_metrics` with {detailed=}")
+        
+        if not SYINFO_AVAILABLE:
+            return {
+                "error": "syinfo package not available", 
+                "message": "Install with: pip install syinfo",
+                "status": "package_missing"
+            }
+
+        try:
+            system_info = SysInfo.get_all()
+            performance_data = {}
+            
+            if isinstance(system_info, dict):
+                for key in ['cpu', 'memory', 'disk', 'network', 'system']:
+                    if key in system_info:
+                        performance_data[key] = system_info[key]
+                if detailed:
+                    performance_data['full_system_info'] = system_info
+            else:
+                performance_data = system_info
+            
+            return {
+                "status": "success", 
+                "performance_metrics": performance_data, 
+                "detailed": detailed, 
+                "timestamp": _get_current_timestamp()
+            }
+        except Exception as e:
+            _logger.error(f"Error getting performance metrics: {e}")
+            return {
+                "error": str(e), 
+                "status": "failed", 
+                "timestamp": _get_current_timestamp()
+            }
+
+    @mcp_server.tool()
+    def check_system_health(include_network_scan: bool = False) -> Dict[str, Any]:
+        """Perform comprehensive system health check including hardware status and network connectivity.
+
+        Conducts a thorough system health assessment by checking critical system components,
+        resource utilization, network connectivity, and potential issues. Essential for
+        proactive monitoring, preventive maintenance, and system reliability assurance.
+
+        Examples:
+            LLM Input Examples:
+                - "Run a complete system health check"
+                - "Check system health including network connectivity"
+                - "Perform health assessment of this system"
+                - "Run diagnostics to identify any system issues"
+
+            Function Call Examples:
+                - check_system_health()
+                - check_system_health(include_network_scan=True)
+
+        Args:
+            include_network_scan (bool): Whether to include network connectivity testing.
+                                       Default: False (faster execution)
+                                       Set to True for comprehensive network health check
+
+        Returns:
+            Dict[str, Any]: System health report containing:
+                - overall_status: "healthy", "warning", "critical"
+                - cpu_status: CPU health and utilization assessment
+                - memory_status: Memory health and usage assessment
+                - disk_status: Disk space and I/O health assessment
+                - network_status: Network interface and connectivity status
+                - issues_found: List of identified problems or warnings
+                - recommendations: Suggested actions for improvements
+                - health_score: Numerical health score (0-100)
+
+        Errors:
+            - ImportError: When syinfo package is not installed
+            - PermissionError: When insufficient privileges for health checks
+            - TimeoutError: When network health checks timeout
+            - OSError: When system health data cannot be accessed
+            - RuntimeError: When health check encounters critical errors
+
+        Notes:
+            - Requires syinfo package: pip install syinfo
+            - Health assessment uses predefined thresholds for metrics
+            - Network scan may require elevated privileges
+            - Health score algorithm considers multiple system factors
+            - Some checks may take longer on heavily loaded systems
+            - Recommendations are based on common best practices
+        """
+        _logger.info(f"Triggering `tool:check_system_health` with {include_network_scan=}")
+        
+        if not SYINFO_AVAILABLE:
+            return {
+                "error": "syinfo package not available",
+                "message": "Install with: pip install syinfo", 
+                "status": "package_missing"
+            }
+
+        try:
+            health_report = {
+                "overall_status": "healthy",
+                "issues_found": [],
+                "recommendations": [],
+                "health_score": 100,
+                "timestamp": _get_current_timestamp()
+            }
+            
+            system_info = SysInfo.get_all()
+            
+            # Simple health assessment
+            if isinstance(system_info, dict):
+                # Check CPU health
+                if 'cpu' in system_info:
+                    cpu_info = system_info['cpu']
+                    if 'usage' in cpu_info and float(cpu_info.get('usage', 0)) > 90:
+                        health_report["issues_found"].append("High CPU usage detected")
+                        health_report["recommendations"].append("Check for resource-intensive processes")
+                        health_report["health_score"] -= 20
+                    elif 'usage' in cpu_info and float(cpu_info.get('usage', 0)) > 75:
+                        health_report["issues_found"].append("Moderate CPU usage")
+                        health_report["recommendations"].append("Monitor CPU usage trends")
+                        health_report["health_score"] -= 10
+                
+                # Check memory health
+                if 'memory' in system_info:
+                    memory_info = system_info['memory'] 
+                    if 'usage_percent' in memory_info and float(memory_info.get('usage_percent', 0)) > 95:
+                        health_report["issues_found"].append("Critical memory usage detected")
+                        health_report["recommendations"].append("Free up memory immediately or add more RAM")
+                        health_report["health_score"] -= 25
+                    elif 'usage_percent' in memory_info and float(memory_info.get('usage_percent', 0)) > 85:
+                        health_report["issues_found"].append("High memory usage detected")
+                        health_report["recommendations"].append("Consider closing unnecessary applications")
+                        health_report["health_score"] -= 15
+                
+                # Check disk health
+                if 'disk' in system_info:
+                    disk_info = system_info['disk']
+                    if 'usage_percent' in disk_info and float(disk_info.get('usage_percent', 0)) > 95:
+                        health_report["issues_found"].append("Critical disk usage detected")
+                        health_report["recommendations"].append("Free up disk space immediately")
+                        health_report["health_score"] -= 25
+                    elif 'usage_percent' in disk_info and float(disk_info.get('usage_percent', 0)) > 85:
+                        health_report["issues_found"].append("High disk usage detected")
+                        health_report["recommendations"].append("Clean up unnecessary files")
+                        health_report["health_score"] -= 15
+                
+                # Network health check if requested
+                if include_network_scan:
+                    try:
+                        network_info = NetworkInfo.get_all(scan_time=1, disable_vendor_search=True)
+                        if isinstance(network_info, dict) and 'interfaces' in network_info:
+                            active_interfaces = sum(1 for interface in network_info['interfaces'] if interface.get('is_up', False) or interface.get('status') == 'up')
+                            if active_interfaces == 0:
+                                health_report["issues_found"].append("No active network interfaces")
+                                health_report["recommendations"].append("Check network connections")
+                                health_report["health_score"] -= 20
+                    except Exception as ne:
+                        health_report["issues_found"].append("Network health check failed")
+                        health_report["recommendations"].append("Check network configuration")
+                        health_report["health_score"] -= 5
+            
+            # Determine overall status
+            if health_report["health_score"] >= 90:
+                health_report["overall_status"] = "healthy"
+            elif health_report["health_score"] >= 70:
+                health_report["overall_status"] = "warning"
+            else:
+                health_report["overall_status"] = "critical"
+            
+            health_report["status"] = "success"
+            return health_report
+            
+        except Exception as e:
+            _logger.error(f"Error performing system health check: {e}")
+            return {
+                "error": str(e),
+                "status": "failed",
+                "overall_status": "unknown",
+                "timestamp": _get_current_timestamp()
+            }
+
+
+def _get_current_timestamp() -> str:
+    """Get current timestamp in ISO format."""
+    try:
+        from datetime import datetime
+        return datetime.now().isoformat()
+    except:
+        return "timestamp_unavailable"

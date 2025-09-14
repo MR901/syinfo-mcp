@@ -26,36 +26,53 @@ A production-ready, configurable template for building Model Context Protocol (M
 
 ## 🚀 Quick Start
 
-### 1. Clone and Setup
+### ⚡ Fastest Way (No Setup Required)
 ```bash
-git clone <this-repo>
-cd syinfo-mcp
+# One command to check dependencies and start server
+python quick_start.py
 
-# Option A: Use DevContainer (Recommended)
+# Or run specific versions
+python quick_start.py --template     # Generic template
+python quick_start.py --original     # Original FogLAMP server
+python quick_start.py --ecommerce    # E-commerce example
+```
+
+### 🐳 DevContainer Setup (If Working)
+```bash
 # Open in VS Code with DevContainer extension
-
-# Option B: Local Setup
-pip install -r requirements.txt
+# If you get errors, see troubleshooting below
 ```
 
-### 2. Run Template Server
+### 🔧 Manual Local Setup (Always Works)
 ```bash
-# Run with defaults
-python -m src.template_server
+# Ensure Python 3.10+
+python --version
 
-# Run with custom configuration
-MCP_SERVER_NAME="My Custom Server" python -m src.template_server
+# Install dependencies
+pip install -r requirements.txt
 
-# Run e-commerce example
-python examples/ecommerce_server.py
+# Run servers
+python -m src.template_server        # Template server
+python -m src.mcp_server            # Original server
+python examples/ecommerce_server.py # E-commerce example
 ```
+
+### ❌ Having DevContainer Issues?
+
+**See [DEVCONTAINER_TROUBLESHOOTING.md](DEVCONTAINER_TROUBLESHOOTING.md) for complete solutions.**
+
+Common fixes:
+1. **Use the quick start script**: `python quick_start.py` 
+2. **Try local setup instead** (always works)
+3. **Use minimal DevContainer**: Rename `devcontainer.minimal.json` to `devcontainer.json`
+4. **Update Docker Desktop** and restart
 
 ### 3. Test the Server
 ```bash
 # Check server health
 python health_check.py
 
-# Run tests
+# Run tests (if using make)
 make test
 
 # Check code quality

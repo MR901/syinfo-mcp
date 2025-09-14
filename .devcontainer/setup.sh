@@ -1,11 +1,17 @@
 #!/bin/bash
 
 # MCP Server Template Development Environment Setup
+set -e  # Exit on any error
+
 echo "🚀 Setting up MCP Server Template Development Environment..."
 
-# Update system packages
+# Update system packages with error handling
 echo "📦 Updating system packages..."
-apt-get update && apt-get upgrade -y
+if apt-get update && apt-get upgrade -y; then
+    echo "✅ System packages updated successfully"
+else
+    echo "⚠️  System package update failed, continuing..."
+fi
 
 # Install system dependencies
 echo "🔧 Installing system dependencies..."
@@ -16,12 +22,11 @@ apt-get install -y \
     jq \
     tree \
     htop \
-    postgresql-client \
     sqlite3 \
     build-essential \
     pkg-config \
     libssl-dev \
-    libffi-dev
+    libffi-dev || echo "⚠️  Some system packages failed to install, continuing..."
 
 # Upgrade pip and install Python dependencies
 echo "🐍 Installing Python dependencies..."
