@@ -1,0 +1,106 @@
+# Syinfo MCP Development Container
+# Ubuntu 22.04 setup with Python 3.10 for MCP development
+
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Create vscode user with sudo privileges (if not exists)
+ARG USERNAME=vscode
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+# Ensure vscode user exists with proper setup
+RUN if ! id -u $USERNAME > /dev/null 2>&1; then \
+        groupadd --gid $USER_GID $USERNAME && \
+        useradd --uid $USER_UID --gid $USER_GID -m $USERNAME && \
+        echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME && \
+        chmod 0440 /etc/sudoers.d/$USERNAME; \
+    fi
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Basic system utilities
+    curl \
+    wget \
+    gnupg \
+    lsb-release \
+    ca-certificates \
+    software-properties-common \
+    apt-transport-https \
+    # Development tools
+    build-essential \
+    git \
+    vim \
+    htop \
+    tree \
+    jq \
+    # Python 3.10 and development headers
+    python3.10 \
+    python3.10-dev \
+    python3.10-venv \
+    python3-pip \
+    # Libraries for Python packages
+    libssl-dev \
+    libz-dev \
+    # Network utilities for debugging
+    netstat-nat \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.10 as default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
+
+# No additional services needed for syinfo MCP template
+
+# Install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip3 install --no-cache-dir -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
+
+# Install Node.js LTS (includes npm and npx)
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y nodejs
+
+# Install uv and uvx for modern Python package management (needed for Excel MCP server)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
+
+# Copy and setup service management scripts
+COPY .devcontainer/start_syinfo_services.sh /usr/local/bin/start-syinfo-services.sh
+RUN chmod +x /usr/local/bin/start-syinfo-services.sh
+
+# Create log directories with proper permissions
+RUN mkdir -p /tmp/mcp_logs && \
+    chown -R $USERNAME:$USERNAME /tmp/mcp_logs && \
+    mkdir -p /var/log/dev-services && \
+    chown -R $USERNAME:$USERNAME /var/log/dev-services
+
+# Create workspace directory and set permissions
+RUN mkdir -p /workspaces && \
+    chown -R $USERNAME:$USERNAME /workspaces
+
+# Working directory will be set dynamically by devcontainer.json
+# WORKDIR is handled by containerWorkspaceFolder mount
+
+# Install uv/uvx for the vscode user as well
+USER $USERNAME
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    echo 'export PATH="/home/$USERNAME/.local/bin:$PATH"' >> /home/$USERNAME/.bashrc && \
+    echo 'export PATH="/home/$USERNAME/.local/bin:$PATH"' >> /home/$USERNAME/.profile
+
+# Expose required ports
+EXPOSE 8000 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/ || exit 1
+
+# Default command
+CMD ["/bin/bash"]

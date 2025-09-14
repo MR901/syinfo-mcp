@@ -1,0 +1,78 @@
+{
+  "name": "Syinfo MCP Development Environment",
+  "build": {
+    "dockerfile": "Dockerfile.devcontainer",
+    "context": ".."
+  },
+  
+  // VS Code customizations optimized for Python development
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.pylint",
+        "ms-vscode.vscode-json",
+        "redhat.vscode-yaml",
+        "ms-vscode.makefile-tools",
+        "ms-python.debugpy"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3.10",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "python.formatting.provider": "black",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true
+        },
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  
+  // Port mappings: MCP Server (58000), Management (58001)
+  "runArgs": [
+    "-p", "58000:8000",
+    "-p", "58001:8001"
+  ],
+  
+  "forwardPorts": [8000, 8001],
+  "portsAttributes": {
+    "8000": {
+      "label": "MCP Server",
+      "onAutoForward": "notify"
+    },
+    "8001": {
+      "label": "Management API",
+      "onAutoForward": "notify"
+    }
+  },
+  
+  // Set dynamic environment variables
+  "containerEnv": {
+    "WORKSPACE_ROOT": "${containerWorkspaceFolder}",
+    "WORKSPACE_NAME": "${localWorkspaceFolderBasename}"
+  },
+  
+  // Automatic service startup
+  "postStartCommand": ".devcontainer/start_syinfo_services.sh",
+  
+  // Use vscode user for consistency
+  "remoteUser": "vscode",
+  
+  // Mount git repository
+  "mounts": [
+    "source=${localWorkspaceFolder}/.git,target=/workspaces/${localWorkspaceFolderBasename}/.git,type=bind,consistency=cached"
+  ],
+  
+  // Container features for better development experience  
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": "true",
+      "configureZshAsDefaultShell": "true", 
+      "installOhMyZsh": "true"
+    }
+  }
+}
