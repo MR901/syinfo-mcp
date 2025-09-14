@@ -1,78 +1,98 @@
 {
-  "name": "Syinfo MCP Development Environment",
-  "build": {
-    "dockerfile": "Dockerfile.devcontainer",
-    "context": ".."
+  "name": "MCP Server Template Development",
+  "image": "mcr.microsoft.com/devcontainers/python:3.10",
+  
+  // Features to install
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   
-  // VS Code customizations optimized for Python development
+  // Configure tool-specific properties
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
+        "ms-python.pylint",
+        "ms-python.flake8",
         "ms-python.black-formatter",
         "ms-python.isort",
-        "ms-python.pylint",
-        "ms-vscode.vscode-json",
+        "ms-python.mypy-type-checker",
+        "ms-toolsai.jupyter",
         "redhat.vscode-yaml",
-        "ms-vscode.makefile-tools",
-        "ms-python.debugpy"
+        "ms-vscode.vscode-json",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "ms-vscode.makefile-tools"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "/usr/bin/python3.10",
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
         "python.linting.enabled": true,
         "python.linting.pylintEnabled": true,
         "python.formatting.provider": "black",
+        "python.formatting.blackArgs": ["--line-length=88"],
+        "python.sortImports.args": ["--profile", "black"],
         "editor.formatOnSave": true,
         "editor.codeActionsOnSave": {
           "source.organizeImports": true
         },
-        "terminal.integrated.defaultProfile.linux": "bash"
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true
       }
     }
   },
   
-  // Port mappings: MCP Server (58000), Management (58001)
-  "runArgs": [
-    "-p", "58000:8000",
-    "-p", "58001:8001"
-  ],
-  
-  "forwardPorts": [8000, 8001],
+  // Forward ports for development
+  "forwardPorts": [8000, 8081, 5432],
   "portsAttributes": {
     "8000": {
       "label": "MCP Server",
       "onAutoForward": "notify"
     },
-    "8001": {
-      "label": "Management API",
-      "onAutoForward": "notify"
+    "8081": {
+      "label": "External API",
+      "onAutoForward": "silent"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
     }
   },
   
-  // Set dynamic environment variables
-  "containerEnv": {
-    "WORKSPACE_ROOT": "${containerWorkspaceFolder}",
-    "WORKSPACE_NAME": "${localWorkspaceFolderBasename}"
-  },
-  
-  // Automatic service startup
-  "postStartCommand": ".devcontainer/start_syinfo_services.sh",
-  
-  // Use vscode user for consistency
-  "remoteUser": "vscode",
-  
-  // Mount git repository
+  // Configure container
   "mounts": [
-    "source=${localWorkspaceFolder}/.git,target=/workspaces/${localWorkspaceFolderBasename}/.git,type=bind,consistency=cached"
+    "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind"
   ],
   
-  // Container features for better development experience  
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "installZsh": "true",
-      "configureZshAsDefaultShell": "true", 
-      "installOhMyZsh": "true"
-    }
-  }
+  // Run commands after container creation
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  
+  // Environment variables for development
+  "containerEnv": {
+    "PYTHONPATH": "/workspaces/syinfo-mcp/src",
+    "MCP_HOST": "0.0.0.0",
+    "MCP_PORT": "8000",
+    "MCP_LOG_LEVEL": "DEBUG",
+    "MCP_DEBUG": "true"
+  },
+  
+  // Use 'postStartCommand' to run commands after the container starts
+  "postStartCommand": "echo 'MCP Server Development Container Ready!'",
+  
+  // Uncomment to connect as root instead
+  // "remoteUser": "root",
+  
+  // Set the default shell
+  "defaultExtensions": [
+    "ms-python.python"
+  ],
+  
+  // Lifecycle scripts
+  "initializeCommand": "echo 'Initializing MCP Server Development Environment...'",
+  "onCreateCommand": "echo 'Container created, installing dependencies...'",
+  
+  // Mount workspace with proper permissions
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/syinfo-mcp,type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/syinfo-mcp"
 }
